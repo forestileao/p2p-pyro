@@ -395,7 +395,7 @@ class PeerGUI:
             return
 
         # Iniciar eleição
-        self.peer._start_election()
+        self.peer.start_election()
         messagebox.showinfo("Forçar Eleição", "Eleição iniciada.")
 
     def on_close(self):

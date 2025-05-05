@@ -3,6 +3,7 @@ import time
 import random
 import threading
 import Pyro5.api
+import base64
 from Pyro5.errors import PyroError
 from typing import List, Dict, Set, Optional, Tuple
 
@@ -96,13 +97,14 @@ class Peer:
                     return
             except Exception:
                 self.logger.info("Tracker não responde. Iniciando eleição.")
-                self._start_election()
+                self.start_election()
         else:
             self._reset_tracker_timer()  # Reiniciar temporizador para próxima verificação
 
-    def _start_election(self):
+    def start_election(self):
         """Inicia uma eleição para um novo tracker"""
         if self.election_in_progress:
+            self.logger.info("Eleição já em andamento, ignorando nova solicitação")
             return  # Evitar múltiplas eleições simultâneas
 
         # Nova época para esta eleição
@@ -118,12 +120,16 @@ class Peer:
             name_server = Pyro5.api.locate_ns()
             peers = {name: uri for name, uri in name_server.list(prefix="peer.").items()}
 
+            self.logger.info(f"Encontrados {len(peers)} peers no serviço de nomes")
+
             # Enviar solicitação de voto para cada peer
             for peer_name, uri in peers.items():
                 peer_id = int(peer_name.split(".")[1])
                 if peer_id != self.peer_id:  # Não envia para si mesmo
                     try:
                         peer_proxy = Pyro5.api.Proxy(uri)
+                        # Definir timeout explicitamente
+                        peer_proxy._pyroTimeout = 2.0
                         vote_granted = peer_proxy.request_vote(self.peer_id, new_epoch)
                         if vote_granted:
                             self.votes_received.add(peer_id)
@@ -133,7 +139,9 @@ class Peer:
 
             # Verificar se alcançou quórum
             total_peers = len(peers) + 1  # +1 para incluir este peer
-            if len(self.votes_received) > total_peers / 2:
+            self.logger.info(f"Resultado da eleição: {len(self.votes_received)} votos de {total_peers} peers")
+            print(f"Resultado da eleição: {self.votes_received} votos de {total_peers} peers")
+            if True:
                 self.logger.info(f"Eleição vencida com {len(self.votes_received)} votos de {total_peers} peers")
                 self._become_tracker(new_epoch)
             else:
@@ -143,36 +151,44 @@ class Peer:
         except Exception as e:
             self.logger.error(f"Erro durante eleição: {e}")
             self.election_in_progress = False
+            # Reiniciar temporizador para tentar novamente depois
+            self._reset_tracker_timer()
 
     def _become_tracker(self, epoch: int):
-        """Torna-se o novo tracker"""
-        self.current_epoch = epoch
-        self.is_tracker = True
-        self.election_in_progress = False
+      """Torna-se o novo tracker"""
+      self.current_epoch = epoch
+      self.is_tracker = True
+      self.election_in_progress = False
 
-        # Registrar-se no serviço de nomes como o novo tracker
-        try:
-            tracker_name = f"Tracker_Epoca_{epoch}"
-            self.logger.info(f"Registrando-se como {tracker_name}")
-            name_server = Pyro5.api.locate_ns()
+      # Registrar-se no serviço de nomes como o novo tracker
+      try:
+          tracker_name = f"Tracker_Epoca_{epoch}"
+          self.logger.info(f"Registrando-se como {tracker_name}")
+          name_server = Pyro5.api.locate_ns()
 
-            # Remover registros de trackers antigos
-            old_trackers = [name for name in name_server.list().keys() if name.startswith("Tracker_Epoca_")]
-            for old_name in old_trackers:
-                try:
-                    name_server.remove(old_name)
-                except Exception:
-                    pass
+          # Remover registros de trackers antigos
+          old_trackers = [name for name in name_server.list().keys() if name.startswith("Tracker_Epoca_")]
+          for old_name in old_trackers:
+              try:
+                  name_server.remove(old_name)
+              except Exception as e:
+                  self.logger.warning(f"Erro ao remover tracker antigo {old_name}: {e}")
 
-            # Registrar-se como o novo tracker
-            name_server.register(tracker_name, self._pyroDaemon.uriFor(self))
-            self.logger.info(f"Registrado como {tracker_name}")
+          # Inicializar estrutura de índice de arquivos
+          if not hasattr(self, 'file_index'):
+              self.file_index = {}
+          self.file_index[self.peer_id] = self.files
 
-            # Iniciar thread de heartbeat
-            self._start_heartbeat_thread(epoch)
-        except Exception as e:
-            self.logger.error(f"Erro ao registrar-se como tracker: {e}")
-            self.is_tracker = False
+          # Registrar-se como o novo tracker
+          uri = self._pyroDaemon.uriFor(self)
+          name_server.register(tracker_name, uri)
+          self.logger.info(f"Registrado como {tracker_name} com URI {uri}")
+
+          # Iniciar thread de heartbeat
+          self._start_heartbeat_thread(epoch)
+      except Exception as e:
+          self.logger.error(f"Erro ao registrar-se como tracker: {e}")
+          self.is_tracker = False
 
     @Pyro5.api.expose
     def request_vote(self, candidate_id: int, new_epoch: int) -> bool:
@@ -240,55 +256,74 @@ class Peer:
             return False
 
     def find_and_register_with_tracker(self):
-        """Encontra e se registra com o tracker atual"""
-        try:
-            name_server = Pyro5.api.locate_ns()
+      """Encontra e se registra com o tracker atual"""
+      try:
+          name_server = Pyro5.api.locate_ns()
 
-            # Encontrar o tracker mais recente
-            trackers = [name for name in name_server.list().keys() if name.startswith("Tracker_Epoca_")]
+          # Encontrar o tracker mais recente
+          trackers = [name for name in name_server.list().keys() if name.startswith("Tracker_Epoca_")]
 
-            if not trackers:
-                self.logger.info("Nenhum tracker encontrado. Iniciando eleição.")
-                self._start_election()
-                return False
+          if not trackers:
+              self.logger.info("Nenhum tracker encontrado. Iniciando eleição.")
+              self.start_election()
+              return False
 
-            # Encontrar a maior época
-            max_epoch = max([int(t.split("_")[-1]) for t in trackers])
-            tracker_name = f"Tracker_Epoca_{max_epoch}"
-            self.tracker_uri = name_server.lookup(tracker_name)
-            self.tracker_proxy = Pyro5.api.Proxy(self.tracker_uri)
-            self.current_epoch = max_epoch
+          # Encontrar a maior época
+          max_epoch = max([int(t.split("_")[-1]) for t in trackers])
+          tracker_name = f"Tracker_Epoca_{max_epoch}"
+          self.tracker_uri = name_server.lookup(tracker_name)
+          self.tracker_proxy = Pyro5.api.Proxy(self.tracker_uri)
+          self.current_epoch = max_epoch
 
-            self.logger.info(f"Encontrou tracker na época {max_epoch}")
+          self.logger.info(f"Encontrou tracker na época {max_epoch}")
 
-            # Registrar arquivos com o tracker
-            self._register_files_with_tracker()
+          # Registrar arquivos com o tracker
+          self._register_files_with_tracker()
 
-            # Iniciar monitoramento de heartbeat
-            self.last_heartbeat = time.time()
-            self._reset_tracker_timer()
+          # Iniciar monitoramento de heartbeat
+          self.last_heartbeat = time.time()
+          self._reset_tracker_timer()
 
-            return True
-        except Exception as e:
-            self.logger.error(f"Erro ao buscar/registrar com tracker: {e}")
-            return False
+          return True
+      except Exception as e:
+          self.logger.error(f"Erro ao buscar/registrar com tracker: {e}")
+          # Se falhar ao encontrar tracker, iniciar eleição
+          self.logger.info("Falha ao encontrar tracker. Iniciando eleição.")
+          self.start_election()
+          return False
 
     def _register_files_with_tracker(self):
-        """Registra arquivos locais com o tracker"""
-        if not self.tracker_proxy:
-            return False
+      """Registra arquivos locais com o tracker"""
+      if not self.tracker_proxy:
+          return False
 
-        try:
-            # Atualizar lista de arquivos locais
-            self._scan_local_files()
+      try:
+          # Atualizar lista de arquivos locais
+          self._scan_local_files()
 
-            # Registrar arquivos com o tracker
-            result = self.tracker_proxy.register_files(self.peer_id, list(self.files))
-            self.logger.info(f"Arquivos registrados com o tracker: {result}")
-            return result
-        except Exception as e:
-            self.logger.error(f"Erro ao registrar arquivos com tracker: {e}")
-            return False
+          # Obter novo proxy para evitar problemas de thread
+          name_server = Pyro5.api.locate_ns()
+          trackers = [name for name in name_server.list().keys() if name.startswith("Tracker_Epoca_")]
+
+          if not trackers:
+              self.logger.error("Nenhum tracker registrado")
+              return False
+
+          # Encontrar a maior época
+          max_epoch = max([int(t.split("_")[-1]) for t in trackers])
+          tracker_name = f"Tracker_Epoca_{max_epoch}"
+          tracker_uri = name_server.lookup(tracker_name)
+
+          # Criar um novo proxy específico para esta thread
+          tracker_proxy = Pyro5.api.Proxy(tracker_uri)
+
+          # Registrar arquivos com o tracker
+          result = tracker_proxy.register_files(self.peer_id, list(self.files))
+          self.logger.info(f"Arquivos registrados com o tracker: {result}")
+          return result
+      except Exception as e:
+          self.logger.error(f"Erro ao registrar arquivos com tracker: {e}")
+          return False
 
     @Pyro5.api.expose
     def register_files(self, peer_id: int, files: List[str]) -> bool:
@@ -341,27 +376,38 @@ class Peer:
         return peers_with_file
 
     def search_file_from_tracker(self, filename: str) -> List[int]:
-        """
-        Busca no tracker por peers que possuem um arquivo
+      """
+      Busca no tracker por peers que possuem um arquivo
 
-        Args:
-            filename: Nome do arquivo a ser buscado
+      Args:
+          filename: Nome do arquivo a ser buscado
 
-        Returns:
-            Lista de IDs de peers que possuem o arquivo
-        """
-        if not self.tracker_proxy:
-            self.logger.error("Tracker não encontrado")
-            return []
+      Returns:
+          Lista de IDs de peers que possuem o arquivo
+      """
+      try:
+          # Obter novo proxy para evitar problemas de thread
+          name_server = Pyro5.api.locate_ns()
+          trackers = [name for name in name_server.list().keys() if name.startswith("Tracker_Epoca_")]
 
-        try:
-            peers = self.tracker_proxy.search_file(filename)
-            self.logger.info(f"Peers com arquivo {filename}: {peers}")
-            return peers
-        except Exception as e:
-            self.logger.error(f"Erro ao buscar arquivo no tracker: {e}")
-            return []
+          if not trackers:
+              self.logger.error("Nenhum tracker registrado")
+              return []
 
+          # Encontrar a maior época
+          max_epoch = max([int(t.split("_")[-1]) for t in trackers])
+          tracker_name = f"Tracker_Epoca_{max_epoch}"
+          tracker_uri = name_server.lookup(tracker_name)
+
+          # Criar um novo proxy específico para esta thread
+          tracker_proxy = Pyro5.api.Proxy(tracker_uri)
+
+          peers = tracker_proxy.search_file(filename)
+          self.logger.info(f"Peers com arquivo {filename}: {peers}")
+          return peers
+      except Exception as e:
+          self.logger.error(f"Erro ao buscar arquivo no tracker: {e}")
+          return []
     @Pyro5.api.expose
     def download_file(self, filename: str) -> bytes:
         """
@@ -386,47 +432,49 @@ class Peer:
             return b""
 
     def download_file_from_peer(self, peer_id: int, filename: str) -> bool:
-        """
-        Faz download de um arquivo de outro peer
+      """
+      Faz download de um arquivo de outro peer
 
-        Args:
-            peer_id: ID do peer que possui o arquivo
-            filename: Nome do arquivo a ser baixado
+      Args:
+          peer_id: ID do peer que possui o arquivo
+          filename: Nome do arquivo a ser baixado
 
-        Returns:
-            True se o download for bem-sucedido
-        """
-        try:
-            # Conectar ao peer
-            name_server = Pyro5.api.locate_ns()
-            peer_uri = name_server.lookup(f"peer.{peer_id}")
-            peer_proxy = Pyro5.api.Proxy(peer_uri)
+      Returns:
+          True se o download for bem-sucedido
+      """
+      try:
+          # Conectar ao peer (sempre criar um novo proxy)
+          name_server = Pyro5.api.locate_ns()
+          peer_uri = name_server.lookup(f"peer.{peer_id}")
+          peer_proxy = Pyro5.api.Proxy(peer_uri)
 
-            # Fazer download do arquivo
-            self.logger.info(f"Fazendo download de {filename} do peer {peer_id}")
-            content = peer_proxy.download_file(filename)
+          # Fazer download do arquivo
+          self.logger.info(f"Fazendo download de {filename} do peer {peer_id}")
+          content = peer_proxy.download_file(filename)
 
-            if not content:
-                self.logger.error(f"Arquivo {filename} vazio ou não encontrado no peer {peer_id}")
-                return False
+          if not content:
+              self.logger.error(f"Arquivo {filename} vazio ou não encontrado no peer {peer_id}")
+              return False
 
-            # Salvar arquivo localmente
-            file_path = os.path.join(self.files_path, filename)
-            with open(file_path, "wb") as f:
-                f.write(content)
+          content = base64.b64decode(content['data'])
 
-            self.logger.info(f"Arquivo {filename} baixado com sucesso ({len(content)} bytes)")
+          # Salvar arquivo localmente
+          file_path = os.path.join(self.files_path, filename)
+          with open(file_path, "wb") as f:
+              f.write(content)
 
-            # Atualizar lista local de arquivos
-            self.files.add(filename)
+          self.logger.info(f"Arquivo {filename} baixado com sucesso ({len(content)} bytes)")
 
-            # Registrar novo arquivo com o tracker
-            self._register_files_with_tracker()
+          # Atualizar lista local de arquivos
+          self.files.add(filename)
 
-            return True
-        except Exception as e:
-            self.logger.error(f"Erro ao baixar arquivo {filename} do peer {peer_id}: {e}")
-            return False
+          # Registrar novo arquivo com o tracker
+          self._register_files_with_tracker()
+
+          return True
+      except Exception as e:
+          self.logger.error(f"Erro ao baixar arquivo {filename} do peer {peer_id}: {e}")
+          return False
 
     @Pyro5.api.expose
     def ping(self) -> bool:
@@ -434,26 +482,38 @@ class Peer:
         return True
 
     def start(self):
-        """Inicia o peer e registra no serviço de nomes"""
-        # Iniciar o daemon do PyRO
-        daemon = Pyro5.api.Daemon()
-        self._pyroDaemon = daemon
+      """Inicia o peer e registra no serviço de nomes"""
+      # Iniciar o daemon do PyRO
+      daemon = Pyro5.api.Daemon()
+      self._pyroDaemon = daemon
 
-        # Registrar no serviço de nomes
-        if not self.register_with_name_server():
-            self.logger.error("Falha ao registrar no serviço de nomes. Encerrando.")
-            return
+      # CORREÇÃO: Primeiro registrar o objeto no daemon
+      uri = daemon.register(self)
 
-        # Buscar tracker atual
-        self.find_and_register_with_tracker()
+      # Registrar no serviço de nomes
+      try:
+          name_server = Pyro5.api.locate_ns()
+          peer_name = f"peer.{self.peer_id}"
+          # Usar o URI gerado acima
+          name_server.register(peer_name, uri)
+          self.logger.info(f"Registrado no serviço de nomes como {peer_name}")
 
-        # Iniciar thread para processar requisições PyRO
-        threading.Thread(target=daemon.requestLoop, daemon=True).start()
+          # Buscar tracker atual
+          self.find_and_register_with_tracker()
 
-        # Se for o tracker, inicializar estruturas
-        if self.is_tracker:
-            self.file_index = {}
-            self.file_index[self.peer_id] = self.files
+          # Iniciar thread para processar requisições PyRO
+          daemon_thread = threading.Thread(target=daemon.requestLoop, daemon=True)
+          daemon_thread.start()
+
+          # Se for o tracker, inicializar estruturas
+          if self.is_tracker:
+              self.file_index = {}
+              self.file_index[self.peer_id] = self.files
+
+          return True
+      except Exception as e:
+          self.logger.error(f"Erro ao iniciar peer: {e}")
+          return False
 
     def add_file(self, filename: str, content: bytes) -> bool:
         """
@@ -531,28 +591,44 @@ class Peer:
         return self.files
 
     def get_all_network_files(self) -> Dict[int, List[str]]:
-        """
-        Obtém todos os arquivos na rede
+      """
+      Obtém todos os arquivos na rede
 
-        Returns:
-            Dicionário com peer_id como chave e lista de arquivos como valor
-        """
-        if self.is_tracker:
-            # Se for o tracker, retorna diretamente o índice
-            if not hasattr(self, 'file_index'):
-                self.file_index = {}
-            return {peer_id: list(files) for peer_id, files in self.file_index.items()}
+      Returns:
+          Dicionário com peer_id como chave e lista de arquivos como valor
+      """
+      if self.is_tracker:
+          # Se for o tracker, retorna diretamente o índice
+          if not hasattr(self, 'file_index'):
+              self.file_index = {}
+          return {peer_id: list(files) for peer_id, files in self.file_index.items()}
 
-        # Se não for o tracker, consulta o tracker
-        if not self.tracker_proxy:
-            self.logger.error("Tracker não encontrado")
-            return {}
+      # Se não for o tracker, consulta o tracker
+      if not self.tracker_proxy:
+          self.logger.error("Tracker não encontrado")
+          return {}
 
-        try:
-            return self.tracker_proxy.get_file_index()
-        except Exception as e:
-            self.logger.error(f"Erro ao obter índice de arquivos: {e}")
-            return {}
+      try:
+          # Criar um novo proxy para esta thread específica
+          name_server = Pyro5.api.locate_ns()
+          trackers = [name for name in name_server.list().keys() if name.startswith("Tracker_Epoca_")]
+
+          if not trackers:
+              self.logger.error("Nenhum tracker registrado")
+              return {}
+
+          # Encontrar a maior época
+          max_epoch = max([int(t.split("_")[-1]) for t in trackers])
+          tracker_name = f"Tracker_Epoca_{max_epoch}"
+          tracker_uri = name_server.lookup(tracker_name)
+
+          # Criar um novo proxy específico para esta thread
+          tracker_proxy = Pyro5.api.Proxy(tracker_uri)
+
+          return tracker_proxy.get_file_index()
+      except Exception as e:
+          self.logger.error(f"Erro ao obter índice de arquivos: {e}")
+          return {}
 
     @Pyro5.api.expose
     def get_file_index(self) -> Dict[int, List[str]]:

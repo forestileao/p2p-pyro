@@ -10,25 +10,37 @@ from typing import List
 
 def start_nameserver():
     """Inicia o serviço de nomes do PyRO"""
-    print("Iniciando serviço de nomes PyRO...")
+    print("Iniciando o serviço de nomes (binder) PyRO...")
+
+    # Verificar se o serviço já está rodando
+    try:
+        ns = Pyro5.api.locate_ns()
+        print(f"Serviço de nomes já está rodando em {ns._pyroUri}")
+        return None  # Serviço já está rodando, não iniciar novo
+    except Exception:
+        pass  # Serviço não está rodando, prosseguir com inicialização
+
+    # Iniciar serviço de nomes em novo processo
     ns_proc = subprocess.Popen(
-        [sys.executable, "-m", "Pyro5.nameserver"],
+        [sys.executable, "-m", "Pyro5.nameserver", "--host=localhost"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE
     )
 
-    # Aguardar um pouco para o serviço de nomes iniciar
-    time.sleep(2)
+    # Aguardar o serviço iniciar (tempo maior)
+    for i in range(10):  # Tentar por até 5 segundos
+        try:
+            time.sleep(0.5)
+            ns = Pyro5.api.locate_ns()
+            print(f"Serviço de nomes iniciado em {ns._pyroUri}")
+            return ns_proc
+        except Exception:
+            continue
 
-    # Verificar se o serviço está rodando
-    try:
-        ns = Pyro5.api.locate_ns()
-        print(f"Serviço de nomes iniciado em {ns._pyroUri}")
-        return ns_proc
-    except Exception as e:
-        print(f"Erro ao iniciar serviço de nomes: {e}")
-        ns_proc.kill()
-        return None
+    print("Falha ao iniciar o serviço de nomes.")
+    if ns_proc:
+        ns_proc.terminate()
+    return None
 
 def start_peer(peer_id, files_dir=None):
     """Inicia um peer"""

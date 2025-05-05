@@ -27,7 +27,7 @@ def start_nameserver():
 
     # Iniciar serviço de nomes em novo processo
     ns_proc = subprocess.Popen(
-        [sys.executable, "-m", "Pyro5.nameserver"],
+        [sys.executable, "-m", "Pyro5.nameserver", "--host=localhost"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE
     )
@@ -38,18 +38,25 @@ def start_nameserver():
 
     return ns_proc
 
-def start_peers(num_peers=5, delay=1):
+def start_peers(num_peers=5, delay=2):  # Aumentar o delay para 2 segundos
     """Inicia os processos peer"""
     print(f"Iniciando {num_peers} peers...")
 
     peer_processes = []
     for i in range(1, num_peers + 1):
         print(f"Iniciando peer {i}...")
+        # Adicionar parâmetros de debug
         peer_proc = subprocess.Popen(
-            [sys.executable, "main.py", "--peer", str(i)]
+            [sys.executable, "main.py", "--peer", str(i)],
+            # Remover redirecionamento de saída para ver os logs
+            # stdout=subprocess.PIPE,
+            # stderr=subprocess.PIPE
         )
         peer_processes.append(peer_proc)
-        time.sleep(delay)  # Delay para evitar condições de corrida
+        # Verificar se o processo iniciou
+        if peer_proc.poll() is not None:
+            print(f"ERRO: Peer {i} falhou ao iniciar!")
+        time.sleep(delay)  # Delay maior para evitar condições de corrida
 
     return peer_processes
 
