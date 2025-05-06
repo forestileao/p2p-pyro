@@ -246,12 +246,8 @@ class PeerGUI:
         # Status do tracker
         if self.peer.is_tracker:
             self.tracker_status_label.config(text="Este peer é o tracker")
-        elif self.peer.tracker_proxy:
-            try:
-                self.peer.tracker_proxy.ping()  # Verificar se o tracker responde
-                self.tracker_status_label.config(text="Conectado")
-            except Exception:
-                self.tracker_status_label.config(text="Não responde")
+        elif self.peer.succedded_heartbeat:
+            self.tracker_status_label.config(text="Conectado")
         else:
             self.tracker_status_label.config(text="Não encontrado")
 

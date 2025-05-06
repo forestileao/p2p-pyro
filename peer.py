@@ -56,6 +56,7 @@ class Peer:
         # Controle do temporizador de heartbeat
         self.tracker_timeout = random.randint(150, 300) / 1000  # Temporizador aleatório (150-300ms)
         self.last_heartbeat = 0
+        self.succedded_heartbeat = False
         self.heartbeat_timer = None
 
         self.logger.info(f"Peer {peer_id} iniciado. Arquivos em: {self.files_path}")
@@ -72,12 +73,25 @@ class Peer:
         Returns:
             True se o heartbeat for válido
         """
-        if epoch >= self.current_epoch:
+        self.is_tracker = False  # Este peer não é o tracker
+        if epoch > self.current_epoch:
+            # Detected a new tracker with higher epoch
+            self.logger.info(f"Detected new tracker with epoch {epoch}, re-registering files")
             self.current_epoch = epoch
+            self.last_heartbeat = time.time()
+            # Re-register files with the new tracker
+            self._register_files_with_tracker()
+            # Reiniciar temporizador
+            self._reset_tracker_timer()
+            self.succedded_heartbeat = True
+            return True
+        elif epoch == self.current_epoch:
             self.last_heartbeat = time.time()
             # Reiniciar temporizador
             self._reset_tracker_timer()
+            self.succedded_heartbeat = True
             return True
+        self.succedded_heartbeat = False
         return False
 
     def _reset_tracker_timer(self):
@@ -176,40 +190,40 @@ class Peer:
             self._reset_tracker_timer()
 
     def _become_tracker(self, epoch: int):
-      """Torna-se o novo tracker"""
-      self.current_epoch = epoch
-      self.is_tracker = True
-      self.election_in_progress = False
+        """Torna-se o novo tracker"""
+        self.current_epoch = epoch
+        self.is_tracker = True
+        self.election_in_progress = False
 
-      # Registrar-se no serviço de nomes como o novo tracker
-      try:
-          tracker_name = f"Tracker_Epoca_{epoch}"
-          self.logger.info(f"Registrando-se como {tracker_name}")
-          name_server = Pyro5.api.locate_ns()
+        # Registrar-se no serviço de nomes como o novo tracker
+        try:
+            tracker_name = f"Tracker_Epoca_{epoch}"
+            self.logger.info(f"Registrando-se como {tracker_name}")
+            name_server = Pyro5.api.locate_ns()
 
-          # Remover registros de trackers antigos
-          old_trackers = [name for name in name_server.list().keys() if name.startswith("Tracker_Epoca_")]
-          for old_name in old_trackers:
-              try:
-                  name_server.remove(old_name)
-              except Exception as e:
-                  self.logger.warning(f"Erro ao remover tracker antigo {old_name}: {e}")
+            # Remover registros de trackers antigos
+            old_trackers = [name for name in name_server.list().keys() if name.startswith("Tracker_Epoca_")]
+            for old_name in old_trackers:
+                try:
+                    name_server.remove(old_name)
+                except Exception as e:
+                    self.logger.warning(f"Erro ao remover tracker antigo {old_name}: {e}")
 
-          # Inicializar estrutura de índice de arquivos
-          if not hasattr(self, 'file_index'):
-              self.file_index = {}
-          self.file_index[self.peer_id] = self.files
+            # Inicializar estrutura de índice de arquivos
+            if not hasattr(self, 'file_index'):
+                self.file_index = {}
+            self.file_index[self.peer_id] = self.files
 
-          # Registrar-se como o novo tracker
-          uri = self._pyroDaemon.uriFor(self)
-          name_server.register(tracker_name, uri)
-          self.logger.info(f"Registrado como {tracker_name} com URI {uri}")
+            # Registrar-se como o novo tracker
+            uri = self._pyroDaemon.uriFor(self)
+            name_server.register(tracker_name, uri)
+            self.logger.info(f"Registrado como {tracker_name} com URI {uri}")
 
-          # Iniciar thread de heartbeat
-          self._start_heartbeat_thread(epoch)
-      except Exception as e:
-          self.logger.error(f"Erro ao registrar-se como tracker: {e}")
-          self.is_tracker = False
+            # Iniciar thread de heartbeat
+            self._start_heartbeat_thread(epoch)
+        except Exception as e:
+            self.logger.error(f"Erro ao registrar-se como tracker: {e}")
+            self.is_tracker = False
 
     @Pyro5.api.expose
     def request_vote(self, candidate_id: int, new_epoch: int) -> bool:
