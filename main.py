@@ -9,7 +9,6 @@ import subprocess
 from typing import List
 
 def start_nameserver():
-    """Inicia o serviço de nomes do PyRO"""
     print("Iniciando o serviço de nomes (binder) PyRO...")
 
 
@@ -43,7 +42,6 @@ def start_nameserver():
     return None
 
 def start_peer(peer_id, files_dir=None):
-    """Inicia um peer"""
     print(f"Iniciando peer {peer_id}...")
 
     from gui import PeerGUI
@@ -60,7 +58,6 @@ def start_peer(peer_id, files_dir=None):
     peer_gui.run()
 
 def start_all_peers(num_peers=5, nameserver=True):
-    """Inicia o serviço de nomes e todos os peers"""
     ns_proc = None
 
 
@@ -102,7 +99,6 @@ def start_all_peers(num_peers=5, nameserver=True):
             ns_proc.kill()
 
 def main():
-    """Função principal"""
     parser = argparse.ArgumentParser(description="Aplicação P2P com eleição de tracker")
 
 

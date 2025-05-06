@@ -24,13 +24,6 @@ DEFAULT_FILES_PATH = "files"
 
 class Peer:
     def __init__(self, peer_id: int, files_path: str = None):
-        """
-        Inicializa um nó peer
-
-        Args:
-            peer_id: Identificador único do peer
-            files_path: Diretório onde os arquivos do peer estão armazenados
-        """
         self.peer_id = peer_id
         self.logger = logging.getLogger(f"Peer-{peer_id}")
         self.files_path = files_path or os.path.join(DEFAULT_FILES_PATH, f"peer_{peer_id}")
@@ -64,15 +57,6 @@ class Peer:
 
     @Pyro5.api.expose
     def heartbeat(self, epoch: int) -> bool:
-        """
-        Recebe heartbeat do tracker
-
-        Args:
-            epoch: Época atual do tracker
-
-        Returns:
-            True se o heartbeat for válido
-        """
         self.is_tracker = False
         if epoch > self.current_epoch:
 
@@ -95,7 +79,6 @@ class Peer:
         return False
 
     def _reset_tracker_timer(self):
-        """Reinicia o temporizador de detecção de falha do tracker"""
 
         if self.heartbeat_timer:
             self.heartbeat_timer.cancel()
@@ -107,7 +90,6 @@ class Peer:
         self.heartbeat_timer.start()
 
     def _check_tracker_status(self):
-        """Verifica se o tracker está ativo, inicia eleição se necessário"""
         current_time = time.time()
         if current_time - self.last_heartbeat > self.tracker_timeout:
             self.logger.info(f"Timeout do tracker detectado. Último heartbeat há {current_time - self.last_heartbeat:.2f}s")
@@ -124,7 +106,6 @@ class Peer:
             self._reset_tracker_timer()
 
     def start_election(self):
-        """Inicia uma eleição para um novo tracker"""
         if self.election_in_progress:
             self.logger.info("Eleição já em andamento, ignorando nova solicitação")
             return
@@ -186,7 +167,6 @@ class Peer:
             self._reset_tracker_timer()
 
     def _become_tracker(self, epoch: int):
-        """Torna-se o novo tracker"""
         self.current_epoch = epoch
         self.is_tracker = True
         self.election_in_progress = False
@@ -223,19 +203,7 @@ class Peer:
 
     @Pyro5.api.expose
     def request_vote(self, candidate_id: int, new_epoch: int) -> bool:
-        """
-        Recebe solicitação de voto de um candidato
-
-        Args:
-            candidate_id: ID do peer candidato
-            new_epoch: Época da eleição
-
-        Returns:
-            True se o voto for concedido, False caso contrário
-        """
         self.logger.info(f"Recebeu solicitação de voto do peer {candidate_id} para época {new_epoch}")
-
-
 
         if new_epoch > self.current_epoch:
             self.logger.info(f"Concedendo voto para peer {candidate_id} na época {new_epoch}")
@@ -246,7 +214,6 @@ class Peer:
             return False
 
     def _start_heartbeat_thread(self, epoch: int):
-        """Inicia thread para enviar heartbeats"""
         def send_heartbeats():
             while self.is_tracker:
                 try:
@@ -271,7 +238,6 @@ class Peer:
         heartbeat_thread.start()
 
     def _scan_local_files(self):
-        """Escaneia arquivos locais para atualizar a lista"""
         try:
             files = os.listdir(self.files_path)
             self.files = set(files)
@@ -279,7 +245,6 @@ class Peer:
             self.logger.error(f"Erro ao escanear arquivos locais: {e}")
 
     def register_with_name_server(self):
-        """Registra-se no serviço de nomes do PyRO"""
         try:
             name_server = Pyro5.api.locate_ns()
             peer_name = f"peer.{self.peer_id}"
@@ -292,7 +257,6 @@ class Peer:
             return False
 
     def find_and_register_with_tracker(self):
-      """Encontra e se registra com o tracker atual"""
       try:
           name_server = Pyro5.api.locate_ns()
 
@@ -329,7 +293,6 @@ class Peer:
           return False
 
     def _register_files_with_tracker(self):
-      """Registra arquivos locais com o tracker"""
       if not self.tracker_proxy:
           return False
 
@@ -363,16 +326,6 @@ class Peer:
 
     @Pyro5.api.expose
     def register_files(self, peer_id: int, files: List[str]) -> bool:
-        """
-        [Função do Tracker] Registra arquivos de um peer
-
-        Args:
-            peer_id: ID do peer
-            files: Lista de arquivos do peer
-
-        Returns:
-            True se o registro for bem-sucedido
-        """
         if not self.is_tracker:
             return False
 
@@ -384,15 +337,6 @@ class Peer:
 
     @Pyro5.api.expose
     def search_file(self, filename: str) -> List[int]:
-        """
-        [Função do Tracker] Busca peers que possuem um arquivo
-
-        Args:
-            filename: Nome do arquivo a ser buscado
-
-        Returns:
-            Lista de IDs de peers que possuem o arquivo
-        """
         if not self.is_tracker:
             return []
 
@@ -412,15 +356,6 @@ class Peer:
         return peers_with_file
 
     def search_file_from_tracker(self, filename: str) -> List[int]:
-      """
-      Busca no tracker por peers que possuem um arquivo
-
-      Args:
-          filename: Nome do arquivo a ser buscado
-
-      Returns:
-          Lista de IDs de peers que possuem o arquivo
-      """
       try:
 
           name_server = Pyro5.api.locate_ns()
@@ -446,15 +381,6 @@ class Peer:
           return []
     @Pyro5.api.expose
     def download_file(self, filename: str) -> bytes:
-        """
-        Permite que outro peer faça download de um arquivo
-
-        Args:
-            filename: Nome do arquivo a ser baixado
-
-        Returns:
-            Conteúdo do arquivo em bytes
-        """
         file_path = os.path.join(self.files_path, filename)
 
         try:
@@ -468,16 +394,6 @@ class Peer:
             return b""
 
     def download_file_from_peer(self, peer_id: int, filename: str) -> bool:
-        """
-        Faz download de um arquivo de outro peer
-
-        Args:
-            peer_id: ID do peer que possui o arquivo
-            filename: Nome do arquivo a ser baixado
-
-        Returns:
-            True se o download for bem-sucedido
-        """
         try:
 
             name_server = Pyro5.api.locate_ns()
@@ -523,12 +439,9 @@ class Peer:
 
     @Pyro5.api.expose
     def ping(self) -> bool:
-        """Simples ping para verificar se o peer está ativo"""
         return True
 
     def start(self):
-      """Inicia o peer e registra no serviço de nomes"""
-
       try:
 
           daemon = Pyro5.api.Daemon(host='localhost')
@@ -561,16 +474,6 @@ class Peer:
           return False
 
     def add_file(self, filename: str, content: bytes) -> bool:
-        """
-        Adiciona um novo arquivo ao peer
-
-        Args:
-            filename: Nome do arquivo
-            content: Conteúdo do arquivo em bytes
-
-        Returns:
-            True se o arquivo for adicionado com sucesso
-        """
         try:
             file_path = os.path.join(self.files_path, filename)
             with open(file_path, "wb") as f:
@@ -596,15 +499,6 @@ class Peer:
             return False
 
     def remove_file(self, filename: str) -> bool:
-        """
-        Remove um arquivo do peer
-
-        Args:
-            filename: Nome do arquivo
-
-        Returns:
-            True se o arquivo for removido com sucesso
-        """
         try:
             file_path = os.path.join(self.files_path, filename)
             if os.path.exists(file_path):
@@ -631,17 +525,10 @@ class Peer:
             return False
 
     def get_local_files(self) -> Set[str]:
-        """Retorna a lista de arquivos locais"""
         self._scan_local_files()
         return self.files
 
     def get_all_network_files(self) -> Dict[int, List[str]]:
-      """
-      Obtém todos os arquivos na rede
-
-      Returns:
-          Dicionário com peer_id como chave e lista de arquivos como valor
-      """
       if self.is_tracker:
 
           if not hasattr(self, 'file_index'):
@@ -677,12 +564,6 @@ class Peer:
 
     @Pyro5.api.expose
     def get_file_index(self) -> Dict[int, List[str]]:
-        """
-        [Função do Tracker] Retorna o índice completo de arquivos
-
-        Returns:
-            Dicionário com peer_id como chave e lista de arquivos como valor
-        """
         if not self.is_tracker:
             return {}
 

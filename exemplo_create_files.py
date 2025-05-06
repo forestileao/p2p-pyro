@@ -1,17 +1,9 @@
-#!/usr/bin/env python3
-"""
-Script para criar arquivos de exemplo para cada peer
-Isso facilita o teste da aplicação, gerando arquivos de diferentes tamanhos
-para cada peer, permitindo testar o compartilhamento e transferência.
-"""
-
 import os
 import random
 import string
 import argparse
 
 def generate_random_content(size_kb):
-    """Gera conteúdo aleatório com tamanho aproximado em KB"""
 
     size_bytes = size_kb * 1024
 
@@ -20,7 +12,6 @@ def generate_random_content(size_kb):
     return content.encode('utf-8')
 
 def create_files_for_peer(peer_id, num_files=5, min_size_kb=1, max_size_kb=100):
-    """Cria arquivos de exemplo para um peer"""
 
     peer_dir = os.path.join("files", f"peer_{peer_id}")
     os.makedirs(peer_dir, exist_ok=True)
@@ -44,7 +35,6 @@ def create_files_for_peer(peer_id, num_files=5, min_size_kb=1, max_size_kb=100):
         print(f"  Criado: {filename} ({size_kb} KB)")
 
 def create_common_files(num_files=3, min_size_kb=1, max_size_kb=100, peer_ids=None):
-    """Cria arquivos comuns que serão compartilhados entre alguns peers"""
     if peer_ids is None or len(peer_ids) < 2:
         print("É necessário especificar pelo menos 2 peers para arquivos comuns.")
         return
@@ -74,7 +64,6 @@ def create_common_files(num_files=3, min_size_kb=1, max_size_kb=100, peer_ids=No
             print(f"  Copiado: {filename} ({size_kb} KB) para peer {peer_id}")
 
 def main():
-    """Função principal"""
     parser = argparse.ArgumentParser(description="Cria arquivos de exemplo para os peers")
     parser.add_argument("--peers", type=int, default=5, help="Número de peers (padrão: 5)")
     parser.add_argument("--files", type=int, default=5, help="Número de arquivos por peer (padrão: 5)")

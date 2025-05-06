@@ -1,8 +1,3 @@
-#!/usr/bin/env python3
-"""
-Script para facilitar a execução da aplicação P2P com eleição de tracker
-"""
-
 import os
 import sys
 import subprocess
@@ -10,7 +5,6 @@ import argparse
 import time
 
 def setup_environment():
-    """Prepara o ambiente para execução da aplicação"""
 
     os.makedirs("files", exist_ok=True)
 
@@ -22,7 +16,6 @@ def setup_environment():
         subprocess.check_call([sys.executable, "-m", "pip", "install", "Pyro5"])
 
 def start_nameserver():
-    """Inicia o serviço de nomes do PyRO"""
     print("Iniciando o serviço de nomes (binder) PyRO...")
 
 
@@ -39,7 +32,6 @@ def start_nameserver():
     return ns_proc
 
 def start_peers(num_peers=5, delay=1):
-    """Inicia os processos peer"""
     print(f"Iniciando {num_peers} peers...")
 
     peer_processes = []
@@ -58,7 +50,6 @@ def start_peers(num_peers=5, delay=1):
     return peer_processes
 
 def main():
-    """Função principal"""
     parser = argparse.ArgumentParser(description="Executa a aplicação P2P com eleição de tracker")
     parser.add_argument("--peers", type=int, default=5, help="Número de peers a iniciar (padrão: 5)")
     parser.add_argument("--no-nameserver", action="store_true", help="Não iniciar o serviço de nomes (já deve estar rodando)")

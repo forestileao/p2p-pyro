@@ -10,16 +10,7 @@ from peer import Peer
 
 class PeerGUI:
     def __init__(self, peer_id: int, files_path: Optional[str] = None):
-        """
-        Interface gráfica para o peer
-
-        Args:
-            peer_id: ID do peer
-            files_path: Caminho para os arquivos do peer
-        """
         self.peer = Peer(peer_id, files_path)
-
-
         self.root = tk.Tk()
         self.root.title(f"Peer {peer_id}")
         self.root.geometry("800x600")
@@ -35,7 +26,6 @@ class PeerGUI:
         self._schedule_updates()
 
     def _setup_ui(self):
-        """Configura a interface gráfica"""
 
         self.status_frame = ttk.Frame(self.root)
         self.status_frame.pack(side=tk.TOP, fill=tk.X, padx=10, pady=5)
@@ -73,7 +63,6 @@ class PeerGUI:
         self._setup_tracker_tab()
 
     def _setup_local_tab(self):
-        """Configura a aba de arquivos locais"""
 
         control_frame = ttk.Frame(self.local_frame)
         control_frame.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
@@ -94,7 +83,6 @@ class PeerGUI:
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
     def _setup_network_tab(self):
-        """Configura a aba de arquivos da rede"""
 
         control_frame = ttk.Frame(self.network_frame)
         control_frame.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
@@ -123,7 +111,6 @@ class PeerGUI:
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
     def _setup_search_tab(self):
-        """Configura a aba de busca e download"""
 
         search_control = ttk.Frame(self.search_frame)
         search_control.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
@@ -158,7 +145,6 @@ class PeerGUI:
         ttk.Button(download_frame, text="Baixar Arquivo Selecionado", command=self._download_selected_file).pack(side=tk.LEFT, padx=5)
 
     def _setup_tracker_tab(self):
-        """Configura a aba de informações do tracker"""
 
         info_frame = ttk.Frame(self.tracker_frame)
         info_frame.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
@@ -195,13 +181,11 @@ class PeerGUI:
         ttk.Button(force_election_frame, text="Atualizar Informações", command=self._update_tracker_info).pack(side=tk.RIGHT, padx=5)
 
     def _schedule_updates(self):
-        """Agenda atualizações periódicas da interface"""
 
         self._update_status()
         self.root.after(1000, self._schedule_updates)
 
     def _update_status(self):
-        """Atualiza a barra de status"""
 
         if self.peer.is_tracker:
             self.status_label.config(text=f"Status: Este peer é o Tracker atual (Época {self.peer.current_epoch})")
@@ -225,7 +209,6 @@ class PeerGUI:
             self.tracker_label.config(text="Tracker: Desconhecido")
 
     def _update_local_files(self):
-        """Atualiza a lista de arquivos locais"""
         self.local_files_listbox.delete(0, tk.END)
 
         files = self.peer.get_local_files()
@@ -233,7 +216,6 @@ class PeerGUI:
             self.local_files_listbox.insert(tk.END, file)
 
     def _update_network_files(self):
-        """Atualiza a lista de arquivos da rede"""
         self.network_tree.delete(*self.network_tree.get_children())
 
         file_index = self.peer.get_all_network_files()
@@ -243,7 +225,6 @@ class PeerGUI:
                 self.network_tree.insert("", tk.END, values=(peer_id, file))
 
     def _update_tracker_info(self):
-        """Atualiza as informações do tracker"""
         self.current_epoch_label.config(text=str(self.peer.current_epoch))
 
 
@@ -271,7 +252,6 @@ class PeerGUI:
         self.total_files_label.config(text=str(total_files))
 
     def _search_file(self):
-        """Busca um arquivo na rede"""
         filename = self.search_entry.get().strip()
         if not filename:
             messagebox.showwarning("Busca de Arquivo", "Digite o nome do arquivo a ser buscado.")
@@ -292,7 +272,6 @@ class PeerGUI:
             self.search_results_tree.insert("", tk.END, values=(peer_id, filename))
 
     def _download_selected_file(self):
-        """Baixa o arquivo selecionado na aba de busca"""
         selected_item = self.search_results_tree.selection()
         if not selected_item:
             messagebox.showwarning("Download de Arquivo", "Selecione um arquivo para baixar.")
@@ -326,7 +305,6 @@ class PeerGUI:
         threading.Thread(target=download_thread).start()
 
     def _download_network_file(self):
-        """Baixa o arquivo selecionado na aba de arquivos da rede"""
         selected_item = self.network_tree.selection()
         if not selected_item:
             messagebox.showwarning("Download de Arquivo", "Selecione um arquivo para baixar.")
@@ -365,7 +343,6 @@ class PeerGUI:
         threading.Thread(target=download_thread).start()
 
     def _add_file(self):
-        """Adiciona um novo arquivo ao peer"""
 
         file_path = filedialog.askopenfilename(title="Selecionar Arquivo")
         if not file_path:
@@ -399,7 +376,6 @@ class PeerGUI:
             messagebox.showerror("Adicionar Arquivo", f"Erro ao ler arquivo: {e}")
 
     def _remove_file(self):
-        """Remove um arquivo do peer"""
         selected_item = self.local_files_listbox.curselection()
         if not selected_item:
             messagebox.showwarning("Remover Arquivo", "Selecione um arquivo para remover.")
@@ -424,7 +400,6 @@ class PeerGUI:
             messagebox.showerror("Remover Arquivo", f"Erro ao remover arquivo '{filename}'.")
 
     def _force_election(self):
-        """Força uma eleição (simula falha do tracker)"""
         response = messagebox.askyesno(
             "Forçar Eleição",
             "Isso simulará uma falha do tracker atual e iniciará uma nova eleição. Continuar?"
@@ -437,7 +412,6 @@ class PeerGUI:
         messagebox.showinfo("Forçar Eleição", "Eleição iniciada.")
 
     def on_close(self):
-        """Manipulador para evento de fechamento da janela"""
 
         if self.peer.is_tracker:
             response = messagebox.askyesno(
@@ -451,7 +425,6 @@ class PeerGUI:
         self.root.destroy()
 
     def run(self):
-        """Inicia a interface gráfica"""
 
         self._update_local_files()
         self._update_network_files()
