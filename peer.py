@@ -118,7 +118,7 @@ class Peer:
         self.votes_received = {self.peer_id}
         self.voted_for_epoch = new_epoch
 
-        delay = random.uniform(0.5, 2.0)
+        delay = random.uniform(0.5, 2.0) * 0.5
         time.sleep(delay)
 
         try:

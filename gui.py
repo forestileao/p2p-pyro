@@ -184,19 +184,17 @@ class PeerGUI:
 
         self._update_status()
         self.root.after(1000, self._schedule_updates)
+        self.root.after(1000, self._update_tracker_info)
 
     def _update_status(self):
 
         if self.peer.is_tracker:
             self.status_label.config(text=f"Status: Este peer é o Tracker atual (Época {self.peer.current_epoch})")
         else:
+            current_time = time.time()
 
-            if self.peer.tracker_proxy:
-                try:
-                    self.peer.tracker_proxy.ping()
-                    self.status_label.config(text=f"Status: Conectado (Época {self.peer.current_epoch})")
-                except Exception:
-                    self.status_label.config(text="Status: Tracker não responde")
+            if current_time - self.peer.last_heartbeat < 4:
+                self.status_label.config(text=f"Status: Conectado (Época {self.peer.current_epoch})")
             else:
                 self.status_label.config(text="Status: Tracker não encontrado")
 
@@ -226,11 +224,11 @@ class PeerGUI:
 
     def _update_tracker_info(self):
         self.current_epoch_label.config(text=str(self.peer.current_epoch))
-
+        current_time = time.time()
 
         if self.peer.is_tracker:
             self.tracker_status_label.config(text="Este peer é o tracker")
-        elif hasattr(self.peer, 'succedded_heartbeat') and self.peer.succedded_heartbeat:
+        elif current_time - self.peer.last_heartbeat < 4:
             self.tracker_status_label.config(text="Conectado")
         else:
             self.tracker_status_label.config(text="Não encontrado")
