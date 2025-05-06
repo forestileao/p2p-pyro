@@ -38,7 +38,7 @@ def start_nameserver():
 
     return ns_proc
 
-def start_peers(num_peers=5, delay=2):  # Aumentar o delay para 2 segundos
+def start_peers(num_peers=5, delay=1):  # Aumentar o delay para 2 segundos
     """Inicia os processos peer"""
     print(f"Iniciando {num_peers} peers...")
 
@@ -48,9 +48,6 @@ def start_peers(num_peers=5, delay=2):  # Aumentar o delay para 2 segundos
         # Adicionar parâmetros de debug
         peer_proc = subprocess.Popen(
             [sys.executable, "main.py", "--peer", str(i)],
-            # Remover redirecionamento de saída para ver os logs
-            # stdout=subprocess.PIPE,
-            # stderr=subprocess.PIPE
         )
         peer_processes.append(peer_proc)
         # Verificar se o processo iniciou

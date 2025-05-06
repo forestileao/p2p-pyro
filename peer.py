@@ -7,6 +7,14 @@ import base64
 from Pyro5.errors import PyroError
 from typing import List, Dict, Set, Optional, Tuple
 
+# Configurações do Pyro5 para melhorar a conexão
+Pyro5.config.SERIALIZER = "serpent"  # Usar pickle para serialização
+Pyro5.config.THREADPOOL_SIZE = 16  # Aumentar tamanho do pool de threads
+Pyro5.config.SERVERTYPE = "multiplex"  # Usar multiplex para lidar com múltiplas conexões
+Pyro5.config.DETAILED_TRACEBACK = True  # Habilitar traceback detalhado para debugging
+Pyro5.config.SOCK_REUSE = True  # Permitir reutilização de socket
+Pyro5.config.COMMTIMEOUT = 5.0  # Timeout de comunicação em segundos
+
 # Configuração básica de logging
 import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -115,6 +123,10 @@ class Peer:
         self.votes_received = {self.peer_id}  # Vota em si mesmo
         self.voted_for_epoch = new_epoch
 
+        # Adicionar atraso aleatório para reduzir colisões
+        delay = random.uniform(1, 3) * self.peer_id  # Delay proporcional ao ID do peer
+        time.sleep(delay)
+
         # Buscar todos os peers no serviço de nomes
         try:
             name_server = Pyro5.api.locate_ns()
@@ -129,24 +141,33 @@ class Peer:
                     try:
                         peer_proxy = Pyro5.api.Proxy(uri)
                         # Definir timeout explicitamente
-                        peer_proxy._pyroTimeout = 2.0
+                        peer_proxy._pyroTimeout = 5.0  # Aumentar timeout para 5 segundos
+                        self.logger.info(f"Solicitando voto do peer {peer_id}")
                         vote_granted = peer_proxy.request_vote(self.peer_id, new_epoch)
                         if vote_granted:
                             self.votes_received.add(peer_id)
                             self.logger.info(f"Recebeu voto do peer {peer_id}")
+                        else:
+                            self.logger.info(f"Peer {peer_id} negou o voto")
                     except Exception as e:
                         self.logger.warning(f"Erro ao solicitar voto de {peer_name}: {e}")
 
             # Verificar se alcançou quórum
             total_peers = len(peers) + 1  # +1 para incluir este peer
-            self.logger.info(f"Resultado da eleição: {len(self.votes_received)} votos de {total_peers} peers")
-            print(f"Resultado da eleição: {self.votes_received} votos de {total_peers} peers")
-            if True:
+            votes_needed = total_peers // 2 + 1  # Maioria simples
+            self.logger.info(f"Resultado da eleição: {len(self.votes_received)} votos de {total_peers} peers (necessário: {votes_needed})")
+
+            if len(self.votes_received) >= votes_needed:
                 self.logger.info(f"Eleição vencida com {len(self.votes_received)} votos de {total_peers} peers")
                 self._become_tracker(new_epoch)
             else:
-                self.logger.info(f"Eleição perdida. Recebeu {len(self.votes_received)} votos, mas precisa de >50%")
+                self.logger.info(f"Eleição perdida. Recebeu {len(self.votes_received)} votos, mas precisa de >{total_peers//2}")
                 self.election_in_progress = False
+
+                # Adicionar atraso antes de tentar novamente, para evitar congestionamento
+                retry_delay = random.uniform(0.5, 2.0)
+                self.logger.info(f"Aguardando {retry_delay:.2f}s antes de considerar nova eleição")
+                time.sleep(retry_delay)
 
         except Exception as e:
             self.logger.error(f"Erro durante eleição: {e}")
@@ -202,12 +223,17 @@ class Peer:
         Returns:
             True se o voto for concedido, False caso contrário
         """
-        # Só concede voto se a época for maior que a atual e se ainda não votou nesta época
-        if new_epoch > self.current_epoch and new_epoch > self.voted_for_epoch:
+        self.logger.info(f"Recebeu solicitação de voto do peer {candidate_id} para época {new_epoch}")
+
+        # Se a época solicitada for maior que a atual, conceder o voto
+        # independentemente do self.voted_for_epoch
+        if new_epoch > self.current_epoch:
             self.logger.info(f"Concedendo voto para peer {candidate_id} na época {new_epoch}")
             self.voted_for_epoch = new_epoch
             return True
-        return False
+        else:
+            self.logger.info(f"Negando voto para peer {candidate_id}. Época atual: {self.current_epoch}, Última época votada: {self.voted_for_epoch}")
+            return False
 
     def _start_heartbeat_thread(self, epoch: int):
         """Inicia thread para enviar heartbeats"""
@@ -483,32 +509,32 @@ class Peer:
 
     def start(self):
       """Inicia o peer e registra no serviço de nomes"""
-      # Iniciar o daemon do PyRO
-      daemon = Pyro5.api.Daemon()
-      self._pyroDaemon = daemon
-
-      # CORREÇÃO: Primeiro registrar o objeto no daemon
-      uri = daemon.register(self)
-
-      # Registrar no serviço de nomes
+      # Configurar daemon para aceitar conexões de qualquer interface
       try:
+          # Usar host='' para aceitar conexões de qualquer interface
+          daemon = Pyro5.api.Daemon(host='localhost')
+          self._pyroDaemon = daemon
+
+          # Registrar o objeto no daemon
+          uri = daemon.register(self)
+
+          self.logger.info(f"Daemon iniciado com URI: {uri}")
+
+          # Registrar no serviço de nomes
           name_server = Pyro5.api.locate_ns()
           peer_name = f"peer.{self.peer_id}"
-          # Usar o URI gerado acima
           name_server.register(peer_name, uri)
           self.logger.info(f"Registrado no serviço de nomes como {peer_name}")
 
-          # Buscar tracker atual
-          self.find_and_register_with_tracker()
-
-          # Iniciar thread para processar requisições PyRO
+          # Iniciar thread para processar requisições em segundo plano
           daemon_thread = threading.Thread(target=daemon.requestLoop, daemon=True)
           daemon_thread.start()
 
-          # Se for o tracker, inicializar estruturas
-          if self.is_tracker:
-              self.file_index = {}
-              self.file_index[self.peer_id] = self.files
+          # Dar tempo para o daemon inicializar completamente
+          time.sleep(1)
+
+          # Buscar tracker atual
+          self.find_and_register_with_tracker()
 
           return True
       except Exception as e:
