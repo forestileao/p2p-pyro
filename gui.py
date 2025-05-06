@@ -99,6 +99,9 @@ class PeerGUI:
         control_frame = ttk.Frame(self.network_frame)
         control_frame.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
 
+        # Botão para baixar arquivo selecionado
+        ttk.Button(control_frame, text="Baixar Arquivo", command=self._download_network_file).pack(side=tk.LEFT, padx=5)
+
         ttk.Button(control_frame, text="Atualizar", command=self._update_network_files).pack(side=tk.RIGHT, padx=5)
 
         # Treeview para mostrar os arquivos da rede
@@ -246,7 +249,7 @@ class PeerGUI:
         # Status do tracker
         if self.peer.is_tracker:
             self.tracker_status_label.config(text="Este peer é o tracker")
-        elif self.peer.succedded_heartbeat:
+        elif hasattr(self.peer, 'succedded_heartbeat') and self.peer.succedded_heartbeat:
             self.tracker_status_label.config(text="Conectado")
         else:
             self.tracker_status_label.config(text="Não encontrado")
@@ -289,7 +292,7 @@ class PeerGUI:
             self.search_results_tree.insert("", tk.END, values=(peer_id, filename))
 
     def _download_selected_file(self):
-        """Baixa o arquivo selecionado"""
+        """Baixa o arquivo selecionado na aba de busca"""
         selected_item = self.search_results_tree.selection()
         if not selected_item:
             messagebox.showwarning("Download de Arquivo", "Selecione um arquivo para baixar.")
@@ -299,6 +302,45 @@ class PeerGUI:
         item_values = self.search_results_tree.item(selected_item[0], "values")
         peer_id = int(item_values[0])
         filename = item_values[1]
+
+        # Verificar se o arquivo já existe localmente
+        if filename in self.peer.get_local_files():
+            response = messagebox.askyesno(
+                "Download de Arquivo",
+                f"O arquivo '{filename}' já existe localmente. Deseja substituí-lo?"
+            )
+            if not response:
+                return
+
+        # Iniciar download em uma thread separada
+        def download_thread():
+            success = self.peer.download_file_from_peer(peer_id, filename)
+
+            # Atualizar interface após o download
+            if success:
+                messagebox.showinfo("Download de Arquivo", f"Arquivo '{filename}' baixado com sucesso.")
+                self._update_local_files()
+            else:
+                messagebox.showerror("Download de Arquivo", f"Erro ao baixar arquivo '{filename}'.")
+
+        threading.Thread(target=download_thread).start()
+
+    def _download_network_file(self):
+        """Baixa o arquivo selecionado na aba de arquivos da rede"""
+        selected_item = self.network_tree.selection()
+        if not selected_item:
+            messagebox.showwarning("Download de Arquivo", "Selecione um arquivo para baixar.")
+            return
+
+        # Obter informações do arquivo selecionado
+        item_values = self.network_tree.item(selected_item[0], "values")
+        peer_id = int(item_values[0])
+        filename = item_values[1]
+
+        # Verificar se o arquivo pertence ao próprio peer
+        if peer_id == self.peer.peer_id:
+            messagebox.showinfo("Download de Arquivo", "Este arquivo já está em seu peer.")
+            return
 
         # Verificar se o arquivo já existe localmente
         if filename in self.peer.get_local_files():
