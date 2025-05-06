@@ -138,7 +138,7 @@ class Peer:
         self.voted_for_epoch = new_epoch
 
         # Adicionar atraso aleatório para reduzir colisões
-        delay = random.uniform(1, 3) * self.peer_id  # Delay proporcional ao ID do peer
+        delay = random.uniform(1, 1.5) * self.peer_id  # Delay proporcional ao ID do peer
         time.sleep(delay)
 
         # Buscar todos os peers no serviço de nomes
@@ -472,49 +472,58 @@ class Peer:
             return b""
 
     def download_file_from_peer(self, peer_id: int, filename: str) -> bool:
-      """
-      Faz download de um arquivo de outro peer
+        """
+        Faz download de um arquivo de outro peer
 
-      Args:
-          peer_id: ID do peer que possui o arquivo
-          filename: Nome do arquivo a ser baixado
+        Args:
+            peer_id: ID do peer que possui o arquivo
+            filename: Nome do arquivo a ser baixado
 
-      Returns:
-          True se o download for bem-sucedido
-      """
-      try:
-          # Conectar ao peer (sempre criar um novo proxy)
-          name_server = Pyro5.api.locate_ns()
-          peer_uri = name_server.lookup(f"peer.{peer_id}")
-          peer_proxy = Pyro5.api.Proxy(peer_uri)
+        Returns:
+            True se o download for bem-sucedido
+        """
+        try:
+            # Conectar ao peer (sempre criar um novo proxy)
+            name_server = Pyro5.api.locate_ns()
+            peer_uri = name_server.lookup(f"peer.{peer_id}")
+            peer_proxy = Pyro5.api.Proxy(peer_uri)
 
-          # Fazer download do arquivo
-          self.logger.info(f"Fazendo download de {filename} do peer {peer_id}")
-          content = peer_proxy.download_file(filename)
+            # Fazer download do arquivo
+            self.logger.info(f"Fazendo download de {filename} do peer {peer_id}")
+            content = peer_proxy.download_file(filename)
 
-          if not content:
-              self.logger.error(f"Arquivo {filename} vazio ou não encontrado no peer {peer_id}")
-              return False
+            if not content:
+                self.logger.error(f"Arquivo {filename} vazio ou não encontrado no peer {peer_id}")
+                return False
 
-          content = base64.b64decode(content['data'])
+            # Preservar o formato esperado pela interface Tkinter
+            content = base64.b64decode(content['data'])
 
-          # Salvar arquivo localmente
-          file_path = os.path.join(self.files_path, filename)
-          with open(file_path, "wb") as f:
-              f.write(content)
+            # Salvar arquivo localmente
+            file_path = os.path.join(self.files_path, filename)
+            with open(file_path, "wb") as f:
+                f.write(content)
 
-          self.logger.info(f"Arquivo {filename} baixado com sucesso ({len(content)} bytes)")
+            self.logger.info(f"Arquivo {filename} baixado com sucesso ({len(content)} bytes)")
 
-          # Atualizar lista local de arquivos
-          self.files.add(filename)
+            # Atualizar lista local de arquivos
+            self.files.add(filename)
 
-          # Registrar novo arquivo com o tracker
-          self._register_files_with_tracker()
+            # Registrar novo arquivo com o tracker - versão melhorada com mais tentativas
+            success = False
+            for _ in range(3):  # Tentar até 3 vezes
+                if self._register_files_with_tracker():
+                    success = True
+                    break
+                time.sleep(0.5)  # Esperar um pouco antes de tentar novamente
 
-          return True
-      except Exception as e:
-          self.logger.error(f"Erro ao baixar arquivo {filename} do peer {peer_id}: {e}")
-          return False
+            if not success:
+                self.logger.warning(f"Não foi possível registrar {filename} com o tracker após várias tentativas")
+
+            return True
+        except Exception as e:
+            self.logger.error(f"Erro ao baixar arquivo {filename} do peer {peer_id}: {e}")
+            return False
 
     @Pyro5.api.expose
     def ping(self) -> bool:
