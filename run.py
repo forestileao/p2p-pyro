@@ -11,10 +11,10 @@ import time
 
 def setup_environment():
     """Prepara o ambiente para execução da aplicação"""
-    # Criar diretórios necessários
+
     os.makedirs("files", exist_ok=True)
 
-    # Verificar dependências
+
     try:
         import Pyro5
     except ImportError:
@@ -25,35 +25,35 @@ def start_nameserver():
     """Inicia o serviço de nomes do PyRO"""
     print("Iniciando o serviço de nomes (binder) PyRO...")
 
-    # Iniciar serviço de nomes em novo processo
+
     ns_proc = subprocess.Popen(
         [sys.executable, "-m", "Pyro5.nameserver", "--host=localhost"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE
     )
 
-    # Aguardar o serviço iniciar
+
     time.sleep(2)
     print("Serviço de nomes iniciado.")
 
     return ns_proc
 
-def start_peers(num_peers=5, delay=1):  # Aumentar o delay para 2 segundos
+def start_peers(num_peers=5, delay=1):
     """Inicia os processos peer"""
     print(f"Iniciando {num_peers} peers...")
 
     peer_processes = []
     for i in range(1, num_peers + 1):
         print(f"Iniciando peer {i}...")
-        # Adicionar parâmetros de debug
+
         peer_proc = subprocess.Popen(
             [sys.executable, "main.py", "--peer", str(i)],
         )
         peer_processes.append(peer_proc)
-        # Verificar se o processo iniciou
+
         if peer_proc.poll() is not None:
             print(f"ERRO: Peer {i} falhou ao iniciar!")
-        time.sleep(delay)  # Delay maior para evitar condições de corrida
+        time.sleep(delay)
 
     return peer_processes
 
@@ -64,30 +64,30 @@ def main():
     parser.add_argument("--no-nameserver", action="store_true", help="Não iniciar o serviço de nomes (já deve estar rodando)")
     args = parser.parse_args()
 
-    # Preparar ambiente
+
     setup_environment()
 
-    # Iniciar serviço de nomes se necessário
+
     ns_proc = None
     if not args.no_nameserver:
         ns_proc = start_nameserver()
 
-    # Iniciar peers
+
     peer_processes = start_peers(args.peers)
 
-    # Aguardar processos terminarem
+
     try:
         print("\nSistema P2P iniciado com sucesso!")
         print("Pressione Ctrl+C para encerrar todos os processos.")
 
-        # Aguardar indefinidamente
+
         for proc in peer_processes:
             proc.wait()
 
     except KeyboardInterrupt:
         print("\nEncerrando aplicação...")
 
-        # Encerrar todos os processos
+
         for proc in peer_processes:
             proc.terminate()
 
