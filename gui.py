@@ -333,12 +333,13 @@ class PeerGUI:
 
 
             if success:
-                messagebox.showinfo("Download de Arquivo", f"Arquivo '{filename}' baixado com sucesso.")
                 self._update_local_files()
-            else:
-                messagebox.showerror("Download de Arquivo", f"Erro ao baixar arquivo '{filename}'.")
 
-        threading.Thread(target=download_thread).start()
+        try:
+            threading.Thread(target=download_thread).start()
+        except Exception as e:
+            messagebox.showerror("Download de Arquivo", f"Erro ao baixar arquivo '{filename}': {e}")
+            return
 
     def _add_file(self):
 

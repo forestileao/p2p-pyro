@@ -7,7 +7,6 @@ import base64
 from Pyro5.errors import PyroError
 from typing import List, Dict, Set, Optional, Tuple
 
-# Configurações do Pyro5 para melhorar a conexão
 Pyro5.config.SERIALIZER = "serpent"
 Pyro5.config.THREADPOOL_SIZE = 16
 Pyro5.config.SERVERTYPE = "multiplex"
@@ -15,11 +14,9 @@ Pyro5.config.DETAILED_TRACEBACK = True
 Pyro5.config.SOCK_REUSE = True
 Pyro5.config.COMMTIMEOUT = 5.0
 
-# Configuração básica de logging
 import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-# Caminho onde os arquivos do peer serão armazenados
 DEFAULT_FILES_PATH = "files"
 
 class Peer:
@@ -127,6 +124,8 @@ class Peer:
 
             self.logger.info(f"Encontrados {len(peers)} peers no serviço de nomes")
 
+            total_peers = len(peers)
+
             for peer_name, uri in peers.items():
                 peer_id = int(peer_name.split(".")[1])
                 if peer_id != self.peer_id:
@@ -142,11 +141,10 @@ class Peer:
                             self.logger.info(f"Peer {peer_id} negou o voto")
                     except Exception as e:
                         self.logger.warning(f"Erro ao solicitar voto de {peer_name}: {e}")
+                        total_peers -= 1
 
 
-            total_peers = len(peers) + 1
             votes_needed = total_peers // 2 + 1
-            self.logger.info(f"Resultado da eleição: {len(self.votes_received)} votos de {total_peers} peers (necessário: {votes_needed})")
 
             if len(self.votes_received) >= votes_needed:
                 self.logger.info(f"Eleição vencida com {len(self.votes_received)} votos de {total_peers} peers")
@@ -294,7 +292,13 @@ class Peer:
 
     def _register_files_with_tracker(self):
       if not self.tracker_proxy:
-          return False
+          name_server = Pyro5.api.locate_ns()
+          trackers = [name for name in name_server.list().keys() if name.startswith("Tracker_Epoca_")]
+          max_epoch = max([int(t.split("_")[-1]) for t in trackers])
+          tracker_name = f"Tracker_Epoca_{max_epoch}"
+          self.tracker_uri = name_server.lookup(tracker_name)
+          self.tracker_proxy = Pyro5.api.Proxy(self.tracker_uri)
+          self.current_epoch = max_epoch
 
       try:
 
@@ -535,10 +539,6 @@ class Peer:
               self.file_index = {}
           return {peer_id: list(files) for peer_id, files in self.file_index.items()}
 
-
-      if not self.tracker_proxy:
-          self.logger.error("Tracker não encontrado")
-          return {}
 
       try:
 
