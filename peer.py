@@ -95,8 +95,6 @@ class Peer:
             except Exception:
                 self.logger.info("Tracker não responde. Iniciando eleição.")
                 self.start_election()
-        else:
-            self._reset_tracker_timer()
 
 
     def start_election(self):
@@ -325,6 +323,34 @@ class Peer:
         return True
 
     @Pyro5.api.expose
+    def register_file_add(self, peer_id: int, file: str) -> bool:
+        if not self.is_tracker:
+            return False
+
+        self.logger.info(f"Registrando o arquivo {file} para peer {peer_id}")
+
+        if peer_id not in self.file_index:
+            self.file_index[peer_id] = set()
+
+        self.file_index[peer_id].add(file)
+
+        return True
+
+    @Pyro5.api.expose
+    def register_file_removal(self, peer_id: int, file: str) -> bool:
+        if not self.is_tracker:
+            return False
+
+        self.logger.info(f"Removendo o arquivo {file} para peer {peer_id}")
+
+        if peer_id not in self.file_index:
+            self.file_index[peer_id] = set()
+
+        self.file_index[peer_id].discard(file)
+
+        return True
+
+    @Pyro5.api.expose
     def search_file(self, filename: str) -> List[int]:
         if not self.is_tracker:
             return []
@@ -341,7 +367,6 @@ class Peer:
 
         self.logger.info(f"Peers com arquivo {filename}: {peers_with_file}")
         return peers_with_file
-
 
     def search_file_from_tracker(self, filename: str) -> List[int]:
       try:
@@ -364,7 +389,6 @@ class Peer:
       except Exception as e:
           self.logger.error(f"Erro ao buscar arquivo no tracker: {e}")
           return []
-      
 
     @Pyro5.api.expose
     def download_file(self, filename: str) -> bytes:
@@ -460,9 +484,20 @@ class Peer:
             self.files.add(filename)
 
             if not self.is_tracker:
-                self._register_files_with_tracker()
-            else:
+                name_server = Pyro5.api.locate_ns()
+                trackers = [name for name in name_server.list().keys() if name.startswith("Tracker_Epoca_")]
 
+                if not trackers:
+                    self.logger.error("Nenhum tracker registrado")
+                    return False
+
+                max_epoch = max([int(t.split("_")[-1]) for t in trackers])
+                tracker_name = f"Tracker_Epoca_{max_epoch}"
+                tracker_uri = name_server.lookup(tracker_name)
+
+                tracker_proxy = Pyro5.api.Proxy(tracker_uri)
+                tracker_proxy.register_file_add(self.peer_id, filename)
+            else:
                 if not hasattr(self, 'file_index'):
                     self.file_index = {}
                 self.file_index[self.peer_id] = self.files
@@ -484,7 +519,19 @@ class Peer:
                 self.files.discard(filename)
 
                 if not self.is_tracker:
-                    self._register_files_with_tracker()
+                    name_server = Pyro5.api.locate_ns()
+                    trackers = [name for name in name_server.list().keys() if name.startswith("Tracker_Epoca_")]
+
+                    if not trackers:
+                        self.logger.error("Nenhum tracker registrado")
+                        return False
+
+                    max_epoch = max([int(t.split("_")[-1]) for t in trackers])
+                    tracker_name = f"Tracker_Epoca_{max_epoch}"
+                    tracker_uri = name_server.lookup(tracker_name)
+
+                    tracker_proxy = Pyro5.api.Proxy(tracker_uri)
+                    tracker_proxy.register_file_removal(self.peer_id, filename)
                 else:
                     if not hasattr(self, 'file_index'):
                         self.file_index = {}
